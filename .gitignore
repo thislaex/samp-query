@@ -1,0 +1,23 @@
+# Log files
+*.log
+samp_query.log
+
+# PHP temp files
+*.tmp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+
+# Local config files
+config.local.php
