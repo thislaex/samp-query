@@ -16,19 +16,22 @@ if (!empty($missing_extensions)) {
 
 class SAMPServerList {
     private $servers = [
-        ['ip' => '51.254.139.153', 'port' => 7777],
-        ['ip' => '89.45.44.38', 'port' => 7777]
+        ['ip' => '51.254.139.153', 'port' => 7777, 'type' => 'samp'],
+        ['ip' => '89.45.44.38', 'port' => 7777, 'type' => 'samp'],
+        ['ip' => '178.33.83.55', 'port' => 7777, 'type' => 'openmp'],
+        // Open.MP sunucular için örnek (kendi sunucularınızı ekleyin)
+        // ['ip' => 'openmp-sunucu-ip', 'port' => 7777, 'type' => 'openmp']
     ];
 
-    public function queryServer($ip, $port) {
-        return $this->queryServerSocket($ip, $port);
+    public function queryServer($ip, $port, $type = 'samp') {
+        return $this->queryServerSocket($ip, $port, $type);
     }
     
-    private function queryServerSocket($ip, $port) {
-        return $this->queryWithSocketCreate($ip, $port);
+    private function queryServerSocket($ip, $port, $type = 'samp') {
+        return $this->queryWithSocketCreate($ip, $port, $type);
     }
     
-    private function queryWithSocketCreate($ip, $port) {
+    private function queryWithSocketCreate($ip, $port, $type = 'samp') {
         if (!extension_loaded('sockets')) {
             return false;
         }
@@ -45,7 +48,7 @@ class SAMPServerList {
             @socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array('sec' => 2, 'usec' => 0));
             @socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, array('sec' => 2, 'usec' => 0));
             
-            $packet = $this->buildSAMPQuery($ip, $port);
+            $packet = $this->buildSAMPQuery($ip, $port, $type);
             
             $start_time = microtime(true);
             $sent = @socket_sendto($socket, $packet, strlen($packet), 0, $ip, $port);
@@ -69,7 +72,7 @@ class SAMPServerList {
                 return false;
             }
             
-            return $this->parseSAMPResponse($response, $ping);
+            return $this->parseSAMPResponse($response, $ping, $type);
             
         } catch (Exception $e) {
             if (isset($socket) && $socket) {
@@ -82,7 +85,7 @@ class SAMPServerList {
         }
     }
     
-    private function buildSAMPQuery($ip, $port) {
+    private function buildSAMPQuery($ip, $port, $type = 'samp') {
         $packet = 'SAMP';
         
         $ip_parts = explode('.', $ip);
@@ -96,7 +99,7 @@ class SAMPServerList {
         return $packet;
     }
     
-    private function parseSAMPResponse($response, $ping) {
+    private function parseSAMPResponse($response, $ping, $type = 'samp') {
         if (strlen($response) < 11 || substr($response, 0, 4) !== 'SAMP') {
             return false;
         }
@@ -170,7 +173,9 @@ class SAMPServerList {
                 'language' => $this->cleanString($language),
                 'password' => $password == 1,
                 'ping' => min($ping, 999),
-                'source' => 'udp_query'
+                'source' => 'udp_query',
+                'server_type' => $type,
+                'is_openmp' => $type === 'openmp'
             ];
             
         } catch (Exception $e) {
@@ -205,8 +210,10 @@ class SAMPServerList {
         foreach ($this->servers as $server) {
             $stats['total_checked']++;
             
+            $server_type = $server['type'] ?? 'samp';
+            
             $start_time = microtime(true);
-            $info = $this->queryServer($server['ip'], $server['port']);
+            $info = $this->queryServer($server['ip'], $server['port'], $server_type);
             $query_time = round((microtime(true) - $start_time) * 1000, 2);
             
             if ($info) {
@@ -218,7 +225,7 @@ class SAMPServerList {
                 $stats['query_methods'][$info['source']] = ($stats['query_methods'][$info['source']] ?? 0) + 1;
             } else {
                 $stats['failed_queries']++;
-                $stats['errors'][] = "Failed to query {$server['ip']}:{$server['port']}";
+                $stats['errors'][] = "Failed to query {$server['ip']}:{$server['port']} ($server_type)";
             }
         }
         
@@ -253,7 +260,7 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
             'query_time_ms' => $query_time,
             'socket_extension' => extension_loaded('sockets'),
             'timestamp' => date('Y-m-d H:i:s'),
-            'method' => 'samp_udp_query_only'
+            'method' => 'samp_openmp_udp_query'
         ];
         
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
@@ -275,7 +282,7 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GTA SAMP Sunucu Monitörü</title>
+    <title>GTA SAMP/Open.MP Sunucu Monitörü</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -465,7 +472,7 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                         </div>
                         <div>
                             <h1 class="text-3xl font-bold text-slate-800 mb-1">
-                                GTA SAMP Sunucu Monitörü
+                                GTA SAMP/Open.MP Sunucu Monitörü
                             </h1>
                             <p class="text-muted">Gerçek zamanlı sunucu takibi</p>
                         </div>
@@ -521,6 +528,7 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                             <div class="flex items-center space-x-2">
                                 <div class="w-2 h-2 bg-green-400 rounded-full status-online"></div>
                                 <span class="text-xs font-medium uppercase tracking-wider bg-white/20 px-2 py-1 rounded">AKTIF</span>
+                                <span x-show="server.is_openmp" class="text-xs font-medium uppercase tracking-wider bg-orange-400 px-2 py-1 rounded text-white">OPEN.MP</span>
                             </div>
                             <div class="flex items-center space-x-2 bg-white/20 px-3 py-1 rounded-lg">
                                 <i class="fas fa-users text-sm"></i>
@@ -542,9 +550,14 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                         <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <span class="text-sm font-medium text-slate-600 flex items-center">
                                 <i class="fas fa-server mr-2 text-blue-500"></i>
-                                IP Adresi
+                                <span>Sunucu Tipi</span>
                             </span>
-                            <code class="bg-slate-100 text-slate-700 px-3 py-1 rounded font-mono text-sm" x-text="server.ip + ':' + server.port"></code>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-sm font-medium px-3 py-1 rounded" 
+                                      :class="server.is_openmp ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'" 
+                                      x-text="server.is_openmp ? 'Open.MP' : 'SA-MP'"></span>
+                                <code class="bg-slate-100 text-slate-700 px-3 py-1 rounded font-mono text-sm" x-text="server.ip + ':' + server.port"></code>
+                            </div>
                         </div>
 
                         <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -585,10 +598,10 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                             </div>
                         </div>
 
-                        <button @click="connectToServer(server.ip, server.port)" 
+                        <button @click="connectToServer(server.ip, server.port, server.is_openmp)" 
                                 class="w-full connect-btn text-white py-3 px-4 rounded-lg font-medium flex items-center justify-center space-x-2">
                             <i class="fas fa-play"></i>
-                            <span>Sunucuya Bağlan</span>
+                            <span x-text="server.is_openmp ? 'Open.MP\'ye Bağlan' : 'SAMP\'ye Bağlan'"></span>
                             <i class="fas fa-external-link-alt text-sm"></i>
                         </button>
                     </div>
@@ -637,15 +650,15 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                         </a>
                     </div>
                     <p class="font-semibold text-slate-800">
-                        &copy; 2025 GTA SAMP Sunucu Monitörü
+                        &copy; 2025 GTA SAMP/Open.MP Sunucu Monitörü
                     </p>
                     <p class="text-muted text-sm">
-                        Sunucu bilgileri gerçek zamanlı UDP sorguları ile güncellenmektedir
+                        SAMP ve Open.MP sunucu bilgileri gerçek zamanlı UDP sorguları ile güncellenmektedir
                     </p>
                     <div class="flex justify-center items-center space-x-2 text-sm text-muted">
                         <span>Made with</span>
                         <i class="fas fa-heart text-red-400 pulse-slow"></i>
-                        <span>laex for SAMP Community.</span>
+                        <span>laex for SAMP & Open.MP Community.</span>
                     </div>
                 </div>
             </div>
@@ -669,7 +682,10 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                     return this.servers.filter(server => 
                         server.hostname.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
                         server.gamemode.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
-                        server.ip.includes(this.searchTerm)
+                        server.ip.includes(this.searchTerm) ||
+                        (server.is_openmp && this.searchTerm.toLowerCase().includes('openmp')) ||
+                        (server.is_openmp && this.searchTerm.toLowerCase().includes('open.mp')) ||
+                        (!server.is_openmp && this.searchTerm.toLowerCase().includes('samp'))
                     );
                 },
 
@@ -700,9 +716,10 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                     }
                 },
 
-                connectToServer(ip, port) {
+                connectToServer(ip, port, isOpenMP = false) {
+                    const serverType = isOpenMP ? 'Open.MP' : 'SAMP';
                     const notification = {
-                        title: 'SAMP Sunucusuna Bağlanılıyor...',
+                        title: `${serverType} Sunucusuna Bağlanılıyor...`,
                         message: `${ip}:${port} adresine bağlanıyor...`,
                         type: 'info'
                     };
@@ -715,7 +732,7 @@ if (isset($_GET['api']) && $_GET['api'] == 'servers') {
                     setTimeout(() => {
                         const fallbackNotification = {
                             title: 'Manuel Bağlantı Bilgileri',
-                            message: `IP: ${ip}\nPort: ${port}\n\nSAMP istemcinizde bu bilgileri kullanarak manuel olarak bağlanabilirsiniz.`,
+                            message: `IP: ${ip}\nPort: ${port}\nTip: ${serverType}\n\n${isOpenMP ? 'Open.MP' : 'SAMP'} istemcinizde bu bilgileri kullanarak manuel olarak bağlanabilirsiniz.`,
                             type: 'warning'
                         };
                         this.showNotification(fallbackNotification);
